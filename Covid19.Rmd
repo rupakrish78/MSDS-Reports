@@ -1,0 +1,347 @@
+---
+title: "Covid 19 Report"
+author: "Rupa"
+date: "2023-07-03"
+output:
+  pdf_document: default
+  html_document: default
+  word_document: default
+papersize: a4
+---
+
+## Covid-19 Data
+
+```{r setup, include = FALSE}
+
+library (tidyverse)
+library (lubridate)
+
+``` 
+
+## Introduction
+
+Covid-19 is an infectious disease caused by the SARS virus. This virus causes acute respiratory syndrome. Most of the people globally experienced Covid-19, ranging from severe to mild. This report is related to the Covid-19 Data collected by Johns Hopkins. This report helps understand the Covid-19 pattern Globally and in the US.
+
+## Import and Read Data
+
+```{r}
+
+# Get the Covid Data:
+
+url_in <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/"
+
+file_names <- c("time_series_covid19_confirmed_global.csv", "time_series_covid19_deaths_global.csv",
+"time_series_covid19_confirmed_US.csv",
+"time_series_covid19_deaths_US.csv")
+
+# Read the Covid Data:
+
+urls <- str_c (url_in, file_names)
+urls
+
+global_cases <- read_csv(urls[1])
+global_deaths <- read_csv(urls[2])
+us_cases <- read_csv(urls[3])
+us_deaths <- read_csv(urls[4])
+
+```
+
+## Tidy and Transform the data
+
+# Clean the global cases and deaths data keeping only columns needed for the analysis and join the cases and deaths data
+
+```{r}
+
+# Clean the global cases and deaths data keeping only columns needed for the analysis
+
+global_cases <- global_cases %>% pivot_longer (cols = -c('Province/State', 'Country/Region', Lat, Long), names_to = "date", values_to = "cases") %>% select (-c(Lat, Long))
+
+global_deaths <- global_deaths %>% pivot_longer (cols = -c('Province/State', 'Country/Region', Lat, Long), names_to = "date", values_to = "deaths")%>% select (-c(Lat, Long))
+
+# Join the global cases and deaths data
+
+global <- global_cases %>% full_join (global_deaths) %>% rename (Country_Region = 'Country/Region', Province_State = 'Province/State')
+
+# Extract the month and year from the date
+
+global$date <- format(as.Date(global$date, format="%m/%d/%y"),"%m/%y")
+
+# Filter out cases greater that 28000000
+
+global %>% filter (cases > 28000000)
+
+# Combine the Province/State and Country/Region to one column using a comma separator
+
+global <- global %>% unite ("Combined_Key", c(Province_State, Country_Region), sep = " , ", na.rm = TRUE, remove = FALSE)
+
+# Get the updated list of the global cases and deaths after cleaning up the data
+# and keeping only columns needed for the analysis
+
+global
+
+```
+
+# Clean the US cases and deaths data keeping only columns needed for the analysis and join the cases and deaths data
+
+```{r}
+
+us_cases <- us_cases %>% pivot_longer (cols = -(UID:Combined_Key), names_to = "date", values_to = "cases") %>% select(Admin2:cases) %>% select (-c(Lat, Long_))
+
+us_deaths <- us_deaths %>% pivot_longer (cols = -(UID:Population), names_to = "date", values_to = "deaths") %>% select(Admin2:deaths) %>% mutate (date = mdy(date)) %>% select (-c(Lat, Long_))
+
+# Extract the month and year from the date for the cases and deaths
+
+us_cases$date <- format(as.Date(us_cases$date, format="%m/%d/%y"),"%m/%y")
+us_deaths$date <- format(as.Date(us_deaths$date, format="%m/%d/%y"),"%m/%y")
+
+# Join the US cases and deaths data
+
+US <- us_cases %>% full_join (us_deaths)
+
+# Get the updated list of the US cases and deaths after cleaning up the data
+# and keeping only columns needed for the analysis
+
+US
+
+```
+
+## Import the population data for all the countries globally and Read Data
+
+```{r}
+
+# Import the Data with the global population:
+
+uid_lookup_url <-"https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/UID_ISO_FIPS_LookUp_Table.csv"
+
+# Read the global population data:
+
+uid <- read_csv (uid_lookup_url) %>% select (-c(Lat, Long_, Combined_Key, code3, iso2, iso3, Admin2))
+
+uid
+
+```
+
+## Tidy and Transform the data
+
+# Clean the global population data keeping only columns needed for the analysis
+
+```{r}
+
+# Add the population data to the global data
+
+global <- global %>% left_join (uid, by = c("Province_State",
+"Country_Region")) %>% select (-c(UID, FIPS)) %>% select (Province_State, Country_Region, date, cases, deaths, Population, Combined_Key)
+
+```
+
+## Group the Global Data by Country/Region
+
+```{r}
+
+# Group the Global Data by Country/Region
+
+global_by_country <- global %>% group_by (Country_Region, date) %>% summarize (cases = sum(cases), deaths = sum(deaths), Population = sum(Population)) %>% mutate (deaths_per_mill = deaths * 1000000 / Population)
+
+global_by_country <- global_by_country %>% select (Country_Region, date, cases, deaths, deaths_per_mill, Population) %>% ungroup ()
+
+global_by_country
+
+```
+
+## Plot the Global Cases Data
+
+```{r}
+
+# Plot the Global Data by cases
+
+global_by_country %>% filter (cases > 0) %>% ggplot(aes (x = date, y = cases)) + geom_bar (stat = "identity", width = 0.7) + theme (legend.position = "bottom", axis.text.x = element_text (angle = 90)) + labs (title = "COVID19 cases globally", y = NULL)+ xlab ("Year") + ylab ("Cases")
+
+```
+
+## Plot the Global death Data
+
+```{r}
+
+# Plot the Global Data by deaths
+
+global_by_country %>% filter (cases > 0) %>% ggplot(aes (x = date, y = deaths)) + geom_bar (stat = "identity", width = 0.7) + theme (legend.position = "bottom", axis.text.x = element_text (angle = 90)) + labs (title = "COVID19 deaths globally", y = NULL) + xlab ("Date") + ylab ("Deaths")
+
+```
+
+## Visualize the US data
+
+```{r}
+
+# Visualize the US Data by State
+
+US_by_state <- US %>% group_by (Province_State, Country_Region, date) %>% summarize (cases = sum(cases), deaths = sum(deaths), Population = sum (Population)) %>% mutate (deaths_per_mill = deaths * 1000000 / Population)
+
+US_by_state <- US_by_state %>% select (Province_State, Country_Region, date, cases, deaths, deaths_per_mill, Population) %>% ungroup ()
+
+```
+
+## Group the US Data by State by Country/Region
+
+```{r}
+
+# Group the US Data by State by Country/Region
+
+US_totals <- US_by_state %>% group_by (Country_Region, date) %>% summarize (cases = sum(cases), deaths = sum(deaths), Population = sum(Population)) %>% mutate (deaths_per_mill = deaths * 1000000 / Population)
+
+US_totals <- US_by_state %>% select (Country_Region, date, cases, deaths, deaths_per_mill, Population) %>% ungroup ()
+
+US_totals
+tail(US_totals)
+
+```
+
+## Plot the US Data
+
+```{r}
+
+# Plot the US Data
+
+US_totals %>% filter (cases > 0) %>% ggplot(aes (x = date, y = cases)) + geom_line (aes (color = "cases")) + geom_point (aes (color = "cases")) + geom_line (aes (y = deaths, color = "deaths")) + geom_point (aes(y = deaths, color = "deaths")) + scale_y_log10() + theme (legend.position = "bottom", axis.text.x = element_text (angle = 90)) + labs (title = "COVID19 in US", y = NULL)
+
+```
+
+## Plot the Data for the State of New York
+
+```{r}
+
+# Plot the Data for the State of New York
+
+state <- "New York"
+
+US_by_state %>% filter (Province_State == state) %>% filter (cases >0) %>% ggplot (aes (x = date, y = cases)) + geom_line (aes (color = "cases")) + geom_point (aes (color = "cases")) + geom_line (aes (y= deaths, color = "deaths")) + geom_point (aes (y = deaths, color =
+"deaths")) + scale_y_log10() + theme(legend.position = "bottom", axis.text.x = element_text (angle = 90)) + labs (title = str_c ("COVID19 in ", state), y = NULL)
+
+```
+
+## Analyze the data
+
+```{r}
+
+# Find the maximum date
+
+max_date = max (US_totals$date)
+
+max_date
+
+# Find the maximum deaths
+
+max_deaths = max (US_totals$deaths)
+
+max_deaths
+
+```
+
+## Modify the data to add the new cases and new deaths
+
+```{r}
+
+# Modify the data to add the new cases and new deaths
+
+US_by_state <- US_by_state %>% mutate (new_cases = cases - lag(cases), new_deaths = deaths - lag(deaths))
+
+US_totals <- US_totals %>% mutate (new_cases = cases - lag(cases), new_deaths = deaths - lag(deaths))
+
+US_totals
+
+```
+
+## Analyze the US_totals table
+
+```{r}
+
+# Check the tail end of the US_totals table
+
+tail (US_totals)
+
+# Check the new cases and new deaths from the tail end of the US_totals table
+
+tail (US_totals %>% select (new_cases, new_deaths, everything()))
+
+```
+
+## Plot the US totals data
+
+```{r}
+
+# Plot the US totals data
+
+US_totals %>% ggplot (aes (x = date, y = new_cases)) + geom_line (aes (color = "new_cases")) + geom_point (aes (color = "new_cases")) + geom_line (aes (y= new_deaths, color = "new_deaths")) + geom_point (aes (y = new_deaths, color = "new_deaths")) + scale_y_log10() + theme(legend.position = "bottom", axis.text.x = element_text (angle =
+90)) + labs (title = str_c ("COVID19 in ", state), y = NULL)
+
+```
+
+## Plot the Data for the State of Colorado
+
+```{r}
+
+# Plot the Data for the State of Colorado
+
+state <- "Colorado"
+
+US_by_state %>% filter (Province_State == state) %>% filter (cases >0) %>% ggplot (aes (x = date, y = new_cases)) + geom_line (aes (color = "new_cases")) + geom_point (aes (color = "new_cases")) + geom_line (aes (y= new_deaths, color = "new_deaths")) + geom_point (aes (y = new_deaths, color = "new_deaths")) + scale_y_log10() + theme(legend.position = "bottom", axis.text.x = element_text (angle = 90)) + labs (title = str_c ("COVID19 in", state), y = NULL)
+
+```
+
+## Visualize the Data for all US States
+
+```{r}
+
+# Visualize the Data for all US States
+
+US_state_totals <- US_by_state %>% group_by (Province_State) %>% summarize (deaths = max (deaths), cases = max (cases), population = max (Population), cases_per_thou = 1000 * cases / population, deaths_per_thou = 1000 * deaths / population) %>% filter (cases > 0,
+population > 0)
+
+# Get the list of 10 states with the minimum deaths per thousand
+
+US_state_totals %>% slice_min (deaths_per_thou, n = 10) %>% select (deaths_per_thou, cases_per_thou, everything())
+
+# Get the list of 10 states with the maximum deaths per thousand
+
+US_state_totals %>% slice_max (deaths_per_thou, n = 10) %>% select (deaths_per_thou, cases_per_thou, everything())
+
+US_state_totals
+
+```
+
+## Model the Data
+
+```{r}
+
+# Model the Data
+
+mod <- lm (deaths_per_thou ~ cases_per_thou, data = US_state_totals)
+
+summary (mod)
+
+US_state_totals %>% slice_min (cases_per_thou)
+
+US_state_totals %>% slice_max (cases_per_thou)
+
+x_grid <- seq (100, 500)
+
+new_df <- tibble (cases_per_thou = x_grid)
+
+US_tot_w_pred <- US_state_totals %>% mutate (pred = predict(mod))
+
+US_tot_w_pred
+
+```
+
+## Plot the Data
+
+```{r}
+
+# Plot the Data
+
+US_tot_w_pred %>% ggplot () + geom_point (aes (x = cases_per_thou, y = deaths_per_thou), color = "blue") + geom_point (aes (x = cases_per_thou, y = pred), color = "red")
+
+```
+
+## Conclusion
+
+The analysis shows how much Covid-19 affected everyone globally and the number of deaths caused by the Covid-19 virus.  It shows how much every country remained vulnerable to the virus.  Whether it is the vaccines or natural immunity that a person has towards Covid-19, it looks like there is finally a reduction in the number of cases and deaths related to the virus.
