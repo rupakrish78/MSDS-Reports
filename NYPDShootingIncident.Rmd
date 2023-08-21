@@ -1,0 +1,162 @@
+---
+title: "NYPDShootingIncidentData"
+author: "Rupa"
+date: "2023-07-03"
+output:
+  pdf_document: default
+  html_document: default
+  word_document: default
+papersize: a4
+---
+
+## NYPD Shooting Incident
+
+```{r setup, include = FALSE}
+
+library (tidyverse)
+library (lubridate)
+
+```
+
+## Introduction
+
+This report is related to the New York Shooting Incidents from 2006 to 2022. This report helps understand the pattern and trends in the shootings and the Boroughs that the shootings are most seen.
+
+## Import and Read Data
+
+```{r}
+
+# Get the NYPD Shooting Incident Data:
+
+ny_data <- "https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv"
+
+ny_cases <- read_csv (ny_data)
+
+```
+
+## Tidy and Transform the data
+
+```{r}
+
+# Clean the data keeping only columns needed for the analysis
+
+ny_cases <- ny_cases %>% select (-c(JURISDICTION_CODE, OCCUR_TIME, LOC_OF_OCCUR_DESC,
+                                    LOC_CLASSFCTN_DESC, LOCATION_DESC, PERP_AGE_GROUP,
+                                    PERP_SEX, PERP_RACE, X_COORD_CD, Y_COORD_CD,
+                                    Latitude, Longitude, Lon_Lat))
+
+# Extract Unique Elements
+
+ny_cases <- unique (ny_cases)
+
+# Extract the year from the DATE
+
+ny_cases$Year <- format(as.Date(ny_cases$OCCUR_DATE, format="%m/%d/%Y"),"%Y")
+
+# Arrange data in Descending Order of Most Shootings
+
+cases_by_boro <- ny_cases %>% group_by(BORO, Year) %>%  summarize (Cases = n())
+
+# Get the updated list of the cases after cleaning up the data
+# and keeping only columns needed for the analysis
+
+cases_by_boro
+
+```
+
+## Plot the cases by Borough by Year
+
+```{r}
+
+# Plot the number of cases by Year by Borough
+
+cases_by_boro %>% ggplot(aes (x = Year, y = Cases, fill = BORO)) + geom_bar (stat = "identity", width = 0.7) + xlab ("Year") + ylab ("Cases") + ggtitle ("New York Shooting Cases by Borough by Year") + theme (legend.position = "bottom") + scale_fill_manual(values=c('#d62828', '#8338ec', '#f77f00', '#0096c7', '#e75480'))
+
+```
+
+## Plot the cases by Borough
+
+```{r}
+
+# Plot the number of cases by Borough
+
+cases_by_boro %>% ggplot(aes (x = BORO, y = Cases, fill = BORO)) + geom_bar (stat = "identity", width = 0.7) + xlab ("Borough") + ylab ("Cases") + ggtitle ("New York Shooting Cases by Borough") + theme (legend.position = "right") + scale_fill_manual(values=c('#d62828', '#8338ec', '#f77f00', '#0096c7', '#e75480'))
+
+```
+
+## Plot the cases by Victim Age Group
+
+```{r}
+
+# Plot the cases by Victim Age Group
+
+cases_by_vic_age_group <- ny_cases %>% filter (VIC_AGE_GROUP != 1022)
+
+cases_by_vic_age_group <- cases_by_vic_age_group %>% filter (VIC_AGE_GROUP != "UNKNOWN")
+
+cases_by_vic_age_group_by_year <- cases_by_vic_age_group %>% group_by(VIC_AGE_GROUP, Year) %>%  summarize (Cases = n())
+
+cases_by_vic_age_group_by_year[is.na(cases_by_vic_age_group_by_year) | cases_by_vic_age_group_by_year=="Inf"] = NA
+
+cases_by_vic_age_group_by_year %>% ggplot(aes (x = VIC_AGE_GROUP, y = Cases, fill = VIC_AGE_GROUP)) + geom_bar (stat = "identity", width = 0.7) + xlab ("Victim Age Group") + ylab ("Cases") + ggtitle ("New York Shooting Cases by Victim Age Group") + theme (legend.position = "right") + scale_fill_manual(values=c('#d62828', '#8338ec', '#f77f00', '#0096c7', '#e75480'))
+
+```
+
+## Plot the cases by Victim Age Group by Year
+
+```{r}
+
+#Plot the cases by Victim Age Group by Year
+
+cases_by_vic_age_group_by_year %>% ggplot(aes (x = Year, y = Cases, fill = VIC_AGE_GROUP)) + geom_bar (stat = "identity", width = 0.7) + xlab ("Year") + ylab ("Cases") + ggtitle ("New York Shooting Cases by Victim Age Group by Year") + theme (legend.position = "bottom") + scale_fill_manual(values=c('#d62828', '#8338ec', '#f77f00', '#0096c7', '#e75480'))
+
+```
+
+## Plot the cases by Victim Age Group by Borough
+
+```{r}
+
+#Plot the cases by Victim Age Group by Borough
+
+cases_by_vic_by_boro <- cases_by_vic_age_group %>% group_by(Year, VIC_AGE_GROUP, BORO) %>% summarize (Cases = n())
+
+cases_by_vic_by_boro
+
+cases_by_vic_by_boro[is.na(cases_by_vic_by_boro) | cases_by_vic_by_boro=="Inf"] = NA
+
+cases_by_vic_by_boro %>% ggplot(aes (x = VIC_AGE_GROUP, y = Cases, fill = BORO, label = Cases)) + geom_bar (stat = "identity", width = 0.7) + xlab ("Victim Age Group") + ylab ("Cases") + ggtitle ("New York Shooting Cases by Victim Age Group by Borough") + theme (legend.position = "right") + scale_fill_manual(values=c('#d62828', '#8338ec', '#f77f00', '#0096c7', '#e75480'))
+
+```
+
+
+## Linear Modeling the Cases by Victim's Age Group and Cases by Borough
+
+```{r}
+
+#Update the Cases by Borough to include Statistical Murder Analysis by Borough
+
+total_cases <- ny_cases %>% summarize (boro_cases = cases_by_boro$Cases, vic_age_cases = cases_by_vic_age_group_by_year$Cases)
+
+total_cases
+
+lin_mod <-  lm (formula = boro_cases ~ vic_age_cases, data = total_cases)
+
+summary (lin_mod)
+
+total_cases %>% slice_min (vic_age_cases)
+total_cases %>% slice_max (vic_age_cases)
+
+total_cases
+
+x_grid <- seq (-250, 250)
+#lin_mod
+
+lm_cases_with_pred <- total_cases %>% mutate (pred = predict (lin_mod))
+
+lm_cases_with_pred %>% ggplot () + geom_point (aes (x = boro_cases, y = vic_age_cases), color = "blue") + geom_point (aes (x = boro_cases, y = pred), color = "red") + xlab ("Cases by Borough") + ylab ("Cases by Victim Age Group") + ggtitle ("Linear Modeling the Cases by Victim Age Group and Borough") + theme (legend.position = "bottom")
+
+```
+
+## Conclusion
+
+The analysis shows that most of the cases are from Brooklyn and the lowest cases are from Staten Island. The rates had gone down between 2017-2019, but seems to have risen back in 2020. The reason could be because of the lower population of Staten Island compared to Brooklyn. However, not having strict gun laws and seeing the increase in shooting incidents is very concerning.
